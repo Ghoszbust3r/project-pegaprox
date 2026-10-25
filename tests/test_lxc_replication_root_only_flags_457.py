@@ -269,6 +269,23 @@ def test_the_preflight_refuses_a_target_the_caller_is_confined_to(api, seed, con
         assert r.status_code == 200 and r.get_json()['warnings'], r.data
 
 
+
+@pytest.mark.parametrize('route', [PF, '/api/cross-cluster-replications'], ids=['preflight', 'create'])
+@pytest.mark.parametrize('body', [
+    {'source_cluster': [SRC], 'target_cluster': TGT, 'vmid': CT},
+    {'source_cluster': {'id': SRC}, 'target_cluster': TGT, 'vmid': CT},
+    {'source_cluster': SRC, 'target_cluster': [TGT], 'vmid': CT},
+], ids=['source a list', 'source an object', 'target a list'])
+def test_a_cluster_id_that_is_no_string_is_a_bad_request(api, admin, route, body):
+    _manager(api, SRC, ct={'features': 'mknod=1'})
+    _manager(api, TGT)
+    r = admin.post(route, json=dict(body, vm_type='lxc'))
+    assert r.status_code == 400, r.data
+
+
+def test_the_create_route_wants_an_object(api, admin):
+    assert admin.post('/api/cross-cluster-replications', json=[SRC, TGT]).status_code == 400
+
 # --- a run Proxmox refused ----------------------------------------------------------------------
 
 class _Cluster:

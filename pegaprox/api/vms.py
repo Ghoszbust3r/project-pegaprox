@@ -10336,6 +10336,8 @@ def preflight_cross_cluster_replication():
     target_cluster = data.get('target_cluster') or ''
     if not source_cluster or not data.get('vmid'):
         return jsonify({'error': 'source_cluster and vmid are required'}), 400
+    if not isinstance(source_cluster, str) or not isinstance(target_cluster, str):
+        return jsonify({'error': 'source_cluster and target_cluster must be cluster ids'}), 400
     if source_cluster not in cluster_managers:
         return jsonify({'error': 'Source cluster not found'}), 404
     if target_cluster and target_cluster not in cluster_managers:
@@ -10368,6 +10370,8 @@ def preflight_cross_cluster_replication():
 def create_cross_cluster_replication():
     """Create a new cross-cluster replication job."""
     data = request.json or {}
+    if not isinstance(data, dict):
+        return jsonify({'error': 'JSON object expected'}), 400
 
     source_cluster = data.get('source_cluster')
     target_cluster = data.get('target_cluster')
@@ -10375,6 +10379,9 @@ def create_cross_cluster_replication():
 
     if not source_cluster or not target_cluster or not vmid:
         return jsonify({'error': 'source_cluster, target_cluster and vmid are required'}), 400
+    # a list or an object is no key of cluster_managers, and asking made a 500 of it
+    if not isinstance(source_cluster, str) or not isinstance(target_cluster, str):
+        return jsonify({'error': 'source_cluster and target_cluster must be cluster ids'}), 400
 
     if source_cluster not in cluster_managers:
         return jsonify({'error': 'Source cluster not found'}), 404
