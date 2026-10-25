@@ -127,13 +127,18 @@ def _idp_location(url):
     """
     if not isinstance(url, str) or not url.isascii():
         return False
-    if any(c in url for c in ('\r', '\n', '\t', ' ', '\\')):
+    if any(ord(c) <= 0x20 or ord(c) == 0x7f or c == '\\' for c in url):
         return False
     try:
         u = urlparse(url)
+        u.port  # a port that is no number in range raises here, not while werkzeug builds the header
+        own = urlparse('//' + (request.host or '')).hostname or ''
     except ValueError:
         return False
-    return u.scheme == 'https' and bool(u.hostname) and not (u.username or u.password)
+    if u.scheme != 'https' or not u.hostname or u.username or u.password:
+        return False
+    # an endpoint under /api/auth/ of this very host would bounce the browser round in a circle
+    return not (u.hostname == own and u.path.startswith('/api/auth/'))
 
 
 @bp.route('/api/auth/oidc/authorize', methods=['GET'])

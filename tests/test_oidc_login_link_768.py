@@ -234,7 +234,12 @@ def test_a_setup_that_cannot_start_sends_the_browser_to_the_login_page(api, brok
 @pytest.mark.parametrize('endpoint', ['http://idp.example/auth', 'javascript:alert(1)',
                                       '/api/auth/oidc/login', '//idp.example/auth',
                                       'https://user:pw@idp.example/auth',
-                                      'https://idp.example/äuth'])
+                                      'https://idp.example/äuth',
+                                      # a port werkzeug cannot write into the header, control characters
+                                      'https://idp.example:99999/auth', 'https://idp.example:abc/auth',
+                                      'https://idp.example\x00.evil.example/auth', 'https://idp.example\x0b/auth',
+                                      # this route itself on this host, by absolute URL
+                                      'https://localhost/api/auth/oidc/login'])
 def test_a_discovery_document_with_an_unusable_endpoint_is_not_followed(api, monkeypatch, endpoint):
     _configure(KEYCLOAK, {'authorization_endpoint': endpoint}, monkeypatch)
 
