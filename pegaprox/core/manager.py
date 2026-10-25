@@ -62,6 +62,7 @@ from pegaprox.core import rolling_runs
 from pegaprox.core import node_creds
 from pegaprox.core import node_history
 from pegaprox.core.ha_transport import node_cmd
+from pegaprox.core.preflight import cdrom_images
 from pegaprox.utils.ssh import read_capped as _read_capped
 
 # Lazy paramiko import
@@ -3774,12 +3775,10 @@ class PegaProxManager:
                 row.update(reason='its configuration could not be read', code='config')
                 continue
             here = presence.get(node, {})
-            storages, local_image = set(), None
-            for key, storage, value in self._guest_volumes(config):
-                storages.add(storage)
-                if ('media=cdrom' in value and 'cloudinit' not in value.split(',')[0]
-                        and not here.get(storage) and local_image is None):
-                    local_image = (key, storage)
+            storages = {storage for _key, storage, _value in self._guest_volumes(config)}
+            # same CD drives as the eject before a live move (#1169)
+            local_image = next(((key, storage) for key, storage, _vol in cdrom_images(config)
+                                if not here.get(storage)), None)
             row['storages'] = sorted(storages)
             if local_image:
                 row.update(reason=f"{local_image[0]} holds an image on local storage {local_image[1]} - eject it first",
@@ -4424,18 +4423,24 @@ class PegaProxManager:
             # target_storage = vm.get('_target_storage')  # old code, not needed
             
             # unmount iso first or migration fails (found this out the hard way)
+            # MK Oct 2026 (#1169) - every CD drive, not only ide2: an ISO on a SCSI or SATA drive
+            # stops the move just the same. Only the medium goes, cloud-init and the host's own
+            # drive stay. PVE reads a 'cdrom' key as ide2, a config never comes back with one.
             if vm_type == 'qemu':
                 config_url = f"https://{self.host}:{self.api_port}/api2/json/nodes/{source_node}/qemu/{vmid}/config"
                 config_response = self._create_session().get(config_url, timeout=15)
                 if config_response.status_code == 200:
                     config = config_response.json().get('data', {})
-                    for key in ['ide2', 'cdrom']:
-                        if key in config and 'iso' in str(config.get(key, '')).lower():
-                            iso_value = config[key]
-                            self.logger.info(f"unmounting iso from {key}")
-                            unmount_response = self._create_session().put(config_url, data={key: 'none,media=cdrom'})
-                            if unmount_response.status_code != 200:
-                                self.logger.warning(f"couldnt unmount iso: {unmount_response.text}")
+                    for key, _storage, volid in cdrom_images(config, paths=True):
+                        self.logger.info(f"unmounting iso from {key} ({volid})")
+                        try:
+                            unmount_response = self._create_session().put(
+                                config_url, data={key: 'none,media=cdrom'}, timeout=15)
+                        except Exception as e:
+                            self.logger.warning(f"couldnt unmount iso from {key}: {e}")
+                            continue
+                        if unmount_response.status_code != 200:
+                            self.logger.warning(f"couldnt unmount iso from {key}: {unmount_response.text}")
             
             if vm_type == 'qemu':
                 url = f"https://{self.host}:{self.api_port}/api2/json/nodes/{source_node}/qemu/{vmid}/migrate"
