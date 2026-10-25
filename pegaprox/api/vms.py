@@ -7293,6 +7293,15 @@ def _format_lxc_features(parsed):
     return ','.join(f'{k}={v}' if v != '' else k for k, v in parsed.items())
 
 
+def _lxc_root_only_features(value, unprivileged):
+    """The flags of a features string that pve-container lets only root@pam write on a
+    container it creates (no old features to compare with): every one of a privileged
+    container, all but nesting of an unprivileged one. 'keyctl=0' counts, PVE looks at the
+    keys. A remote migration creates the replica that way, with an API token (#457)."""
+    return [k if v in ('', '1') else f'{k}={v}' for k, v in _parse_lxc_features(value).items()
+            if not unprivileged or k != 'nesting']
+
+
 def _lxc_pending(manager, node, vmid):
     """{key: {'value', 'pending', 'delete'}} of a container: the running config and what
     waits for its next start, in one request."""
@@ -9802,6 +9811,7 @@ def _execute_replication(job):
         # NS Mar 2026: PVE remote_migrate needs "source_stor:target_stor" format
         # when source and target storage names differ (#192)
         storage_mapping = target_storage  # fallback: plain name
+        clone_cfg = {}
         try:
             cfg_url = f"https://{source_mgr.host}:{source_mgr.api_port}/api2/json/nodes/{source_node}/{vm_type}/{clone_vmid}/config"
             cfg_resp = source_mgr._api_get(cfg_url)
@@ -9976,7 +9986,10 @@ def _execute_replication(job):
                                             _untagged_replica_error(job_id, tgt_vmid, target_node, tag_detail))
                 else:
                     logging.error(f"[XCREPL] Job {job_id}: migration task failed: {mig_detail}")
-                    _update_repl_status(db, job_id, 'error', f'Migration task failed: {mig_detail}')
+                    # MK Oct 2026 - a container's feature flags show up in the log only (#457)
+                    err_msg = (_root_only_features_refusal(source_mgr, source_node, mig_task, vmid, clone_cfg)
+                               if vm_type == 'lxc' else None)
+                    _update_repl_status(db, job_id, 'error', err_msg or f'Migration task failed: {mig_detail}')
             else:
                 _update_repl_status(db, job_id, 'error', f'Migration failed: {result.get("error")}')
 
@@ -10230,6 +10243,126 @@ def _xcrepl_row_visible(user, row):
         return False
 
 
+# MK Oct 2026 - a remote migration creates the replica on the target with an API token, and
+# pve-container lets only root@pam set most feature flags (check_ct_modify_config_perm), so a
+# container with mknod, keyctl, fuse, mount=nfs and the like never arrives (#457). Said when
+# the job is made, and in plain words when a run fails for it.
+XCREPL_ROOT_ONLY_FEATURES = 'LXC_ROOT_ONLY_FEATURES'
+# the tunnel passes the target's refusal on, the source task logs it before 'migration aborted'
+_ROOT_ONLY_FEATURES_RE = re.compile(r'changing feature flags\b.{0,60}?only allowed for root@pam')
+
+
+def _xcrepl_feature_warning(mgr, vmid, node=''):
+    """The warning for a cross-cluster job of a container that carries feature flags only
+    root@pam may set, None when it has none or its config cannot be read. A job is made
+    once, so this read happens there and in the dialog's preflight, never per run."""
+    if getattr(mgr, 'cluster_type', 'proxmox') != 'proxmox':
+        return None
+    try:
+        for row in (mgr.get_vm_resources(max_age=30) or []):
+            if str(row.get('vmid')) == str(vmid) and row.get('type') == 'lxc':
+                node = row.get('node') or node
+                break
+    except Exception:
+        pass
+    if not _PVE_NODE_RE.fullmatch(str(node or '')):
+        return None
+    try:
+        rows, _resp = _lxc_pending(mgr, node, int(vmid))
+    except Exception as e:
+        logging.debug(f"[XCREPL] features of CT {vmid} unreadable: {e}")
+        return None
+    if rows is None:
+        return None
+    current, effective, unprivileged, _digest = _lxc_feature_state(rows)
+    # what a clone made now copies, and what the container has after its next start
+    flags = list(dict.fromkeys(_lxc_root_only_features(current, unprivileged)
+                               + _lxc_root_only_features(effective, unprivileged)))
+    if not flags:
+        return None
+    # the shape of a migration preflight reason (core/preflight.py), args as the text spells them
+    args = {'vmid': int(vmid), 'flags': ', '.join(flags)}
+    return {'level': 'warning', 'code': XCREPL_ROOT_ONLY_FEATURES, 'args': args,
+            'text': (f"CT {args['vmid']} has feature flags ({args['flags']}) that Proxmox only lets "
+                     f"root@pam set. The replica is created on the target with an API token, so "
+                     f"Proxmox refuses to create it and the runs of this job fail while the "
+                     f"container has them.")}
+
+
+def _task_log_tail(mgr, node, upid, lines=60):
+    """The last lines of a PVE task log: one read for its length, one for the end."""
+    if not _PVE_NODE_RE.fullmatch(str(node or '')) or not re.fullmatch(r'UPID:[^/?#%\s]{1,400}', str(upid or '')):
+        return []
+    url = f"https://{mgr.host}:{mgr.api_port}/api2/json/nodes/{node}/tasks/{upid}/log"
+    head = mgr._api_get(url, params={'start': 0, 'limit': 1})
+    if head.status_code != 200:
+        return []
+    total = int(head.json().get('total') or 0)
+    resp = mgr._api_get(url, params={'start': max(0, total - lines), 'limit': lines})
+    if resp.status_code != 200:
+        return []
+    return [str(e.get('t') or '') for e in resp.json().get('data') or [] if isinstance(e, dict)]
+
+
+def _root_only_features_refusal(mgr, node, upid, vmid, cfg):
+    """The plain error of a run whose replica Proxmox refused for its feature flags, from the
+    end of the failed migration's log (its status just says 'migration aborted'). None when
+    the log says something else or cannot be read."""
+    try:
+        said = next((m.group(0) for line in reversed(_task_log_tail(mgr, node, upid))
+                     for m in [_ROOT_ONLY_FEATURES_RE.search(line)] if m), None)
+    except Exception as e:
+        logging.debug(f"[XCREPL] log of {upid} unreadable: {e}")
+        return None
+    if not said:
+        return None
+    cfg = cfg if isinstance(cfg, dict) else {}
+    flags = _lxc_root_only_features(cfg.get('features'), _feature_on(cfg.get('unprivileged')))
+    which = f" ({', '.join(flags)})" if flags else ''
+    return (f"Proxmox refused to create the replica of CT {vmid} on the target: its feature "
+            f"flags{which} can only be set by root@pam, and the replica is created there with an "
+            f"API token. This job cannot replicate the container while it has them "
+            f"(Proxmox: {said}).")
+
+
+@bp.route('/api/cross-cluster-replications/preflight', methods=['POST'])
+@require_auth(perms=['cluster.config'])
+def preflight_cross_cluster_replication():
+    """What creating a cross-cluster replication job would warn about: {source_cluster, vmid, vm_type, target_cluster, source_node}, the last two optional. Only a container is read (its feature flags), a VM is not."""
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'error': 'JSON object expected'}), 400
+    source_cluster = data.get('source_cluster')
+    target_cluster = data.get('target_cluster') or ''
+    if not source_cluster or not data.get('vmid'):
+        return jsonify({'error': 'source_cluster and vmid are required'}), 400
+    if source_cluster not in cluster_managers:
+        return jsonify({'error': 'Source cluster not found'}), 404
+    if target_cluster and target_cluster not in cluster_managers:
+        return jsonify({'error': 'Target cluster not found'}), 404
+    # the gates of the create route for what this reads: the clusters and the source guest
+    for _cid in filter(None, (source_cluster, target_cluster)):
+        ok, err = check_cluster_access(_cid)
+        if not ok:
+            return err
+    _xu = build_authz_user(request.session.get('user', ''), request.session)
+    try:
+        vmid = int(data.get('vmid'))
+        if not user_can_access_vm(_xu, source_cluster, vmid, 'vm.migrate'):
+            return jsonify({'error': 'Access denied to the source VM'}), 403
+    except (TypeError, ValueError):
+        return jsonify({'error': 'vmid must be a number'}), 400
+    if target_cluster and caller_is_scoped(_xu, target_cluster):
+        return jsonify({'error': 'Access denied to the target cluster'}), 403
+    warnings = []
+    # a job inside one cluster clones and migrates there, no feature flag is set anew
+    if data.get('vm_type') == 'lxc' and target_cluster != source_cluster:
+        warn = _xcrepl_feature_warning(cluster_managers[source_cluster], vmid, str(data.get('source_node') or ''))
+        if warn:
+            warnings.append(warn)
+    return jsonify({'warnings': warnings})
+
+
 @bp.route('/api/cross-cluster-replications', methods=['POST'])
 @require_auth(perms=['cluster.config'])
 def create_cross_cluster_replication():
@@ -10368,12 +10501,20 @@ def create_cross_cluster_replication():
         now, now,
     ))
 
+    # MK Oct 2026 - a warning, not a refusal: the flags may be gone before the first run (#457)
+    _fwarn = None
+    if data.get('vm_type') == 'lxc' and source_cluster != target_cluster:
+        _fwarn = _xcrepl_feature_warning(cluster_managers[source_cluster], int(vmid),
+                                         str(data.get('source_node') or ''))
+
     usr = getattr(request, 'session', {}).get('user', 'system')
     log_audit(usr, 'replication.created',
               f"Cross-cluster replication {job_id}: VM {vmid} from {source_cluster} to {target_cluster} "
-              f"(target VMID {target_vmid or 'auto'}{', delete-target ON' if delete_target else ''})")
+              f"(target VMID {target_vmid or 'auto'}{', delete-target ON' if delete_target else ''})"
+              + (f" - feature flags {_fwarn['args']['flags']} need root@pam on the target" if _fwarn else ''))
 
-    return jsonify({'success': True, 'id': job_id, **({'quota_warning': _qwarn} if _qwarn else {})})
+    return jsonify({'success': True, 'id': job_id, **({'quota_warning': _qwarn} if _qwarn else {}),
+                    **({'warnings': [_fwarn]} if _fwarn else {})})
 
 
 def _delete_replica_target(job):
