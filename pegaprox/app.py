@@ -431,6 +431,22 @@ def create_app():
     # Register all API blueprints
     register_blueprints(app)
 
+    # MK Oct 2026 - portal_only on the routes require_auth does not guard. require_auth holds
+    # the account on every route behind it, with the record it loads anyway; the rest find
+    # their caller themselves (a ws or SSE token, ?session=, the cookie the SSH server sends)
+    # or take none, and are held here before their body runs. A route behind require_auth
+    # costs a lookup of its view and nothing more. After the IP lists, before the standby
+    # hands a write on.
+    @app.before_request
+    def hold_portal_only_accounts():
+        if request.endpoint is None or not request.path.startswith('/api/'):
+            return None
+        view = app.view_functions.get(request.endpoint)
+        if getattr(view, '_pp_auth', None) is not None:
+            return None
+        from pegaprox.utils.auth import portal_only_request_refusal
+        return portal_only_request_refusal()
+
     # MK Sep 2026 (#625) - a standby takes its configuration from the active instance
     # and would lose a local change at the next sync, so it refuses writes. With the
     # live view on it also holds connections to the clusters, and a write there is an
@@ -748,10 +764,11 @@ _LENGTH_RE = re.compile(r'[0-9]{1,9}')
 # the hooks the fast path stands in for, by name: what each does for these two routes is
 # done above or cannot apply (refuse_writes_on_standby lets /api/ha/ through,
 # count_around_a_read and tell_the_members_about_a_write look at other methods and paths,
-# say_no_lease_after_a_refused_write at a refusal of an exit, and these send through none)
+# say_no_lease_after_a_refused_write at a refusal of an exit, and these send through none;
+# hold_portal_only_accounts holds an account, and a call carrying one goes to Flask below)
 _STOOD_IN_FOR = {
-    'before': ('validate_request', 'check_ip_whitelist', 'refuse_writes_on_standby',
-               'count_around_a_read'),
+    'before': ('validate_request', 'check_ip_whitelist', 'hold_portal_only_accounts',
+               'refuse_writes_on_standby', 'count_around_a_read'),
     'after': ('after_request', 'add_security_headers', 'tell_the_members_about_a_write',
               'say_no_lease_after_a_refused_write', '_say_we_hold_the_key'),
 }
@@ -810,9 +827,11 @@ class _LeaseFastPath:
         get = environ.get
         length = get('CONTENT_LENGTH') or ''
         # the size, content-type and CSRF checks of validate_request, met the one way a
-        # member's call meets them: JSON, X-Requested-With and neither Origin nor Referer
+        # member's call meets them: JSON, X-Requested-With and neither Origin nor Referer.
+        # A member signs and sends no account: a session or token is Flask's to judge
         if (get('QUERY_STRING') or get('SCRIPT_NAME') or get('HTTP_TRANSFER_ENCODING')
                 or get('HTTP_UPGRADE') or get('HTTP_ORIGIN') or get('HTTP_REFERER')
+                or get('HTTP_COOKIE') or get('HTTP_X_SESSION_ID') or get('HTTP_AUTHORIZATION')
                 or get('HTTP_X_REQUESTED_WITH') != 'XMLHttpRequest'
                 or 'application/json' not in (get('CONTENT_TYPE') or '')
                 or (get('HTTP_ACCEPT_ENCODING') or 'identity').strip().lower() != 'identity'

@@ -41,7 +41,7 @@ from pegaprox.utils.oidc import (
     oidc_derive_username, oidc_build_user_row, OIDC_AUTH_SOURCES, oidc_username_claim_value,
     oidc_username_claim_refusal, oidc_id_token_verified,
 )
-from pegaprox.utils.rbac import get_user_permissions, DEFAULT_TENANT_ID
+from pegaprox.utils.rbac import get_user_permissions, DEFAULT_TENANT_ID, portal_only_holds
 from pegaprox.api.helpers import load_server_settings, save_server_settings, get_login_settings, get_session_timeout, safe_error, effective_reverse_proxy
 from pegaprox.utils.sanitization import sanitize_identifier, sanitize_username
 from pegaprox.utils.ssh import check_auth_action_rate_limit
@@ -1253,11 +1253,13 @@ def auth_login():
             'taskbar_auto_expand': user.get('taskbar_auto_expand', True),  # NS: Feb 2026
             'sidebar_show_vmid': user.get('sidebar_show_vmid', False),  # NS Jul 2026 — corporate sidebar VMIDs
             'layout_chosen': user.get('layout_chosen', False),
-            'portal_only': user.get('portal_only', False),
+            # MK Oct 2026 - what the server holds the account to: an admin a group mapping
+            # promoted keeps the main UI (rbac.portal_only_holds)
+            'portal_only': portal_only_holds(user),
             'autoinstall_access': autoinstall,  # 'manage' | 'view' | '', same rule as the routes
         },
         'session_id': session_id,
-        'portal_only': user.get('portal_only', False),
+        'portal_only': portal_only_holds(user),
         'default_theme': default_theme,  # NS: Include for frontend fallback
         'reverse_proxy_enabled': effective_reverse_proxy(settings),
         'air_gap_mode': settings.get('air_gap_mode', False),
@@ -1521,7 +1523,7 @@ def auth_check():
             'sidebar_show_vmid': user.get('sidebar_show_vmid', False),  # NS Jul 2026 — corporate sidebar VMIDs
             'totp_enabled': user.get('totp_enabled', False),
             'layout_chosen': user.get('layout_chosen', False),
-            'portal_only': user.get('portal_only', False),
+            'portal_only': portal_only_holds(user),
             'autoinstall_access': autoinstall_access(session['user'], session),
         },
         'password_expiry': password_expiry,

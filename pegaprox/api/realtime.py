@@ -26,8 +26,8 @@ from pegaprox.globals import (
     sse_clients, sse_clients_lock,
 )
 from pegaprox.utils.auth import (require_auth, validate_session, session_alive,
-                                 api_token_alive, request_credential)
-from pegaprox.utils.rbac import get_user_clusters, acts_as_admin
+                                 api_token_alive, request_credential, PORTAL_ONLY_ERROR)
+from pegaprox.utils.rbac import get_user_clusters, acts_as_admin, portal_only_holds
 from pegaprox.utils.realtime import (
     broadcast_update, broadcast_sse, broadcast_action,
     create_sse_token, validate_sse_token,
@@ -107,6 +107,12 @@ def ws_live_updates(ws):
         if _user_data is None:
             ws.send(json.dumps({'type': 'error', 'message': 'Authentication required'}))
             return
+        # MK Oct 2026 - the session comes in this message, where hold_portal_only_accounts
+        # (app.py) does not look: a portal_only account gets no live stream
+        if portal_only_holds(_user_data):
+            ws.send(json.dumps({'type': 'error', 'message': PORTAL_ONLY_ERROR['error'],
+                                'code': PORTAL_ONLY_ERROR['code']}))
+            return
         _allowed = get_user_clusters(_user_data)  # None = admin (all clusters)
         # MK Oct 2026 - the connect message is checked like the subscribe message below: an
         # unrestricted caller's list went into the registry as sent, and one unhashable entry
@@ -157,6 +163,9 @@ def ws_live_updates(ws):
                 _acct = _stream_identity(username)
                 if _acct is None or not _acct.get('enabled', True):
                     logging.info(f"[WS] closing stream for '{_sl(username)}' — account gone or disabled")
+                    break
+                if portal_only_holds(_acct):
+                    logging.info(f"[WS] closing stream for '{_sl(username)}' - portal_only now")
                     break
                 # the session it was opened under, signed out or revoked since (#1038)
                 if not session_alive(session_id):
@@ -703,6 +712,9 @@ def sse_updates():
                             continue
                     if _acct is None or not _acct.get('enabled', True):
                         logging.info(f"[SSE] closing stream for '{_sl(user)}' — account gone or disabled")
+                        return
+                    if portal_only_holds(_acct):
+                        logging.info(f"[SSE] closing stream for '{_sl(user)}' - portal_only now")
                         return
                     _authz_misses = 0
                     # Both constraints have to hold, and each is authoritative in one

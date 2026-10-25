@@ -9,9 +9,9 @@
     the portal takes over the session it arrives with (also the one an SSO sign-in
     started from the portal comes back with), where it used to show the login form
     again. Another account's session at /portal is left alone.
-  * What keeps a portal account out of the main API is its permissions. portal_only is
-    read by the UI only, before and after this change; the tests below show the routes
-    refuse such an account, and the same account without the flag, alike.
+  * What keeps a portal account out of the main API was its permissions alone when this
+    was written; the server holds portal_only itself now, see
+    test_portal_only_is_enforced_on_the_server.py.
 
 The runtime parts drive web/index.html and portal.html in headless Chromium against
 the real app (test_forced_2fa_ui._RealBackend). Each carries its counter-check.
@@ -127,20 +127,6 @@ def test_a_portal_account_is_refused_by_the_main_api(api, db, route):
     assert portal.get(route).status_code == 403
     assert plain.get(route).status_code == 403
     assert admin.get(route).status_code == 200
-
-
-def test_the_server_still_reads_no_portal_only_flag():
-    """portal_only decides where the UI goes, nothing on the server reads it. If that
-    changes, the reasoning in this file needs another look."""
-    readers = []
-    for top in ('pegaprox', 'plugins'):
-        for dirpath, _, files in os.walk(os.path.join(ROOT, top)):
-            for f in files:
-                if f.endswith('.py') and 'portal_only' in _src(dirpath, f):
-                    readers.append(os.path.relpath(os.path.join(dirpath, f), ROOT))
-    # db.py stores it, users.py edits it, auth.py hands it to the UI
-    assert sorted(readers) == ['pegaprox/api/auth.py', 'pegaprox/api/users.py',
-                               'pegaprox/core/db.py']
 
 
 # ── the source ───────────────────────────────────────────────────────────────

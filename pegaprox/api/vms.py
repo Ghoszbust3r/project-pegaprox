@@ -10813,10 +10813,11 @@ def get_hardware_options():
 # alone is a BOLA — a console-capable user could reach ANY VM on ANY cluster/
 # tenant. Every console entry point must also confirm THIS user is authorised for
 # THIS cluster AND VM. Works without request.session (the async/standalone
-# handlers don't have one) by taking the resolved user dict directly.
-def _console_authz(user, cluster_id, vmid, vm_type=None):
+# handlers don't have one) by taking the resolved user dict directly. by_session: the
+# socket came with ?session= rather than a ws token.
+def _console_authz(user, cluster_id, vmid, vm_type=None, by_session=False):
     """Return (ok, reason) — user must have cluster access AND per-VM console access."""
-    from pegaprox.utils.rbac import get_user_clusters, load_vm_acls, user_can_access_vm
+    from pegaprox.utils.rbac import get_user_clusters, load_vm_acls, user_can_access_vm, portal_only_holds
     # NS Oct 2026 - load_users() answers {} when it cannot read the store, and the callers
     # add the username: that bare dict read as a default-tenant viewer, every cluster and
     # vm.console. A record without a role is no account.
@@ -10826,6 +10827,11 @@ def _console_authz(user, cluster_id, vmid, vm_type=None):
     # pre-minted ws_token (this path is reached without require_auth's account-state gate).
     if not user.get('enabled', True):
         return False, 'account disabled'
+    # MK Oct 2026 - a portal_only account opens a console with the ws token the portal's
+    # vm/console route mints, which asks whether the hoster offers consoles at all. The
+    # per-VM gate below keeps it to its own guests either way.
+    if by_session and portal_only_holds(user):
+        return False, 'portal account without a portal ws token'
     # NS Oct 2026 (#1116, #1028) - the role an API token acts under, and no tenant override
     # lowering the account where it lives
     from pegaprox.utils.rbac import acts_as_admin
@@ -11097,7 +11103,7 @@ def vnc_websocket_route(cluster_id, node, vm_type, vmid):
     if not user:
         return jsonify({'error': 'Auth required', 'code': 'AUTH_REQUIRED'}), 401
     # H-1/H-2: cluster + per-VM gate (vm.console alone isn't enough)
-    _ok, _why = _console_authz(user, cluster_id, vmid, vm_type)
+    _ok, _why = _console_authz(user, cluster_id, vmid, vm_type, by_session=not ws_token)
     if not _ok:
         return jsonify({'error': 'Permission denied', 'code': 'INSUFFICIENT_PERMISSIONS'}), 403
 
@@ -11255,7 +11261,7 @@ def start_vnc_websocket_server(port=5001, ssl_cert=None, ssl_key=None, host='0.0
         print(f"Cluster: {cluster_id}, Node: {node}, Type: {vm_type}, VMID: {vmid}")
 
         # H-1/H-2: cluster + per-VM gate before we self-mint a PVE ticket for this vmid
-        _ok, _why = _console_authz(user, cluster_id, vmid, vm_type)
+        _ok, _why = _console_authz(user, cluster_id, vmid, vm_type, by_session=not ws_token)
         if not _ok:
             print(f"ERROR: console authz denied ({_why}) for {cluster_id}/{vmid}")
             await websocket.close(1002, "Permission denied")
@@ -11889,7 +11895,7 @@ def vnc_websocket_proxy(ws, cluster_id, node, vm_type, vmid):
     print(f"User {user['username']} authenticated for VNC")
 
     # H-1/H-2: cluster + per-VM gate before this proxy self-mints a PVE ticket
-    _ok, _why = _console_authz(user, cluster_id, vmid, vm_type)
+    _ok, _why = _console_authz(user, cluster_id, vmid, vm_type, by_session=not ws_token)
     if not _ok:
         try: ws.send('Permission denied')
         except: pass

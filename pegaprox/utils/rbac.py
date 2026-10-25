@@ -478,6 +478,18 @@ def acts_as_admin(user: dict) -> bool:
     return not _admin_is_capped_in_own_tenant(user)
 
 
+def portal_only_holds(user: dict) -> bool:
+    """Whether portal_only keeps this account to the Client Portal.
+
+    MK Oct 2026 - never an administrator's account. users.py refuses the flag on an admin
+    and clears it on promotion, but a directory group mapping makes an account admin at
+    sign-in without passing there, and the portal turns admins away: held to it, that
+    account could use nothing at all. Goes by the stored role, so an API token of such
+    an account follows its owner and not its own (lower) role.
+    """
+    return bool(user and user.get('portal_only')) and user.get('role') != ROLE_ADMIN
+
+
 def has_permission(user: dict, permission: str, tenant_id: str = None) -> bool:
     """check if user has a specific permission
     
@@ -1762,6 +1774,13 @@ def _user_can_access_vm_uncapped(user: dict, cluster_id: str, vmid: int, permiss
     # set) must NOT inherit role-wide control of every VM here — only the specific ACL/
     # pool VMs handled above. Without this, #555's pool cluster-reach (and the older
     # #248 VM-ACL reach) let a pool-/ACL-scoped user drive every VM on the cluster.
+    # MK Oct 2026 - a portal_only account has the guests an ACL row or a pool grant names,
+    # the ones the portal lists, and never the role-wide grant below. On a cluster without
+    # an ACL row for it that grant made every guest its own to stop, through the portal's
+    # power route and the console as well.
+    if portal_only_holds(user):
+        logging.debug(f"[VM-ACL] {username} is portal_only, no ACL or pool grant for VM {vmid} → deny {permission}")
+        return False
     tenant_clusters = get_user_clusters(user, include_pools=False)
     if tenant_clusters is not None and cluster_id not in tenant_clusters:
         logging.debug(f"[VM-ACL] {username} reached {cluster_id} only via ACL/pool; no grant for VM {vmid} → deny {permission}")
