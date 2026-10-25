@@ -130,7 +130,10 @@ jobs:
   # ----------------------------------------------------------------------
   build-lxc:
     needs: prepare
-    runs-on: ubuntu-latest
+    # NS Oct 2026 - ubuntu-latest moved to 26.04, where qemu-user-static is only a virtual
+    # package and apt refuses to pick a provider. 1.4.0 built here on 24.04; stay on it until
+    # the tools step is ported.
+    runs-on: ubuntu-24.04
     # NS Aug 2026 — arm64 builds under qemu emulation and is flaky; a failed arm64 leg must NOT
     # block the amd64 release. publish attaches whatever artifacts exist (glob), so a missing
     # arm64 asset is fine; amd64 has no continue-on-error, so a real amd64 failure still blocks.
