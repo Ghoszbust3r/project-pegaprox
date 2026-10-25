@@ -4852,7 +4852,9 @@ const r=await fetch(`${API_URL}/auth/check?t=${Date.now()}`,{credentials:'includ
 // LW May 2026 — persist air-gap flag for the next page
 // load so the boot script knows to skip CDN/font fetches.
 try{if(d.air_gap_mode)localStorage.setItem('pegaprox-air-gap','1');else localStorage.removeItem('pegaprox-air-gap');}catch(_){}if(d.authenticated){// NS: portal_only users must not access main dashboard
-if(d.user?.portal_only&&!window.location.pathname.startsWith('/portal')){logout();setLoading(false);return;}setUser(d.user);setIsAuthenticated(true);// NS: Get session_id from response for WebSocket auth
+// LW Oct 2026 (#810) - send them to the portal instead of signing them out,
+// the session stays. Loading stays on so the login form never flashes.
+if(d.user?.portal_only&&!window.location.pathname.startsWith('/portal')){window.location.replace('/portal');return;}setUser(d.user);setIsAuthenticated(true);// NS: Get session_id from response for WebSocket auth
 if(d.session_id){setSessionId(d.session_id);}// LW: Store password expiry info if present
 if(d.password_expiry){setPasswordExpiry(d.password_expiry);}// NS: Check if server requires 2FA setup
 if(d.requires_2fa_setup){setRequires2FASetup(true);}else{setRequires2FASetup(false);}// NS: Mar 2026 - apply user's saved language (server overrides local)
@@ -4879,7 +4881,8 @@ if(resp.ok&&data.requires_2fa){// -lw #746: pass the server's `methods` through 
 // on it to show the security-key prompt. Without it twoFAMethods stayed []
 // and a WebAuthn-only account only ever saw the TOTP box (i.e. locked out).
 return{requires_2fa:true,methods:data.methods};}if(resp.ok&&data.success){// portal_only users can't use main dashboard
-if(data.portal_only&&!window.location.pathname.startsWith('/portal')){setError(t('portalOnlyAccount')||'This account can only log in via the Client Portal (/portal)');return{success:false,portal_only:true};}setUser(data.user);setIsAuthenticated(true);// NS: Keep session_id in memory for WebSocket auth
+if(data.portal_only&&!window.location.pathname.startsWith('/portal')){setError(t('portalOnlyAccount')||'This account can only log in via the Client Portal (/portal)');// #810 - the message stays up while the portal loads with this session
+window.location.replace('/portal');return{success:false,portal_only:true};}setUser(data.user);setIsAuthenticated(true);// NS: Keep session_id in memory for WebSocket auth
 if(data.session_id){setSessionId(data.session_id);}// NS: Feb 2026 - Check if force 2FA setup is required
 if(data.requires_2fa_setup){setRequires2FASetup(true);}// NS: Mar 2026 - apply user's saved language on login
 if(data.user?.language&&translations[data.user.language]){applyLanguage(data.user.language);}// NS: Apply user's theme (with fallback to default)

@@ -278,9 +278,10 @@
                         } catch (_) {}
                         if (d.authenticated) {
                             // NS: portal_only users must not access main dashboard
+                            // LW Oct 2026 (#810) - send them to the portal instead of signing them out,
+                            // the session stays. Loading stays on so the login form never flashes.
                             if (d.user?.portal_only && !window.location.pathname.startsWith('/portal')) {
-                                logout();
-                                setLoading(false);
+                                window.location.replace('/portal');
                                 return;
                             }
                             setUser(d.user);
@@ -396,6 +397,8 @@
                         // portal_only users can't use main dashboard
                         if (data.portal_only && !window.location.pathname.startsWith('/portal')) {
                             setError(t('portalOnlyAccount') || 'This account can only log in via the Client Portal (/portal)');
+                            // #810 - the message stays up while the portal loads with this session
+                            window.location.replace('/portal');
                             return { success: false, portal_only: true };
                         }
                         setUser(data.user);
