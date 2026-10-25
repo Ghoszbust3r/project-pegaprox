@@ -300,13 +300,14 @@ function logout(){
 }
 
 // NS: Apr 2026 - check if OIDC/LDAP available for portal login
+// MK Oct 2026 (#810) - read from the public OIDC config. auth/check carries the flag only in
+// its 401, so a browser signed in to the main window got a 200 and no SSO button
 async function checkAuthProviders(){
     try{
-        const r=await fetch(`${API}/api/auth/check?t=${Date.now()}`);
-        // NS: auth/check returns oidc_enabled even on 401 (unauthenticated)
+        const r=await fetch(`${API}/api/auth/oidc/config?t=${Date.now()}`);
         const d=await r.json();
-        S.oidcEnabled=!!d.oidc_enabled;
-        S.oidcButtonText=d.oidc_button_text||'Sign in with SSO';
+        S.oidcEnabled=!!d.enabled;
+        S.oidcButtonText=d.button_text||'Sign in with SSO';
     }catch(e){}
 }
 
@@ -324,7 +325,17 @@ async function startOidcLogin(){
 }
 
 async function checkSess(){
-    if(!S.sid)return;
+    // #810 - a portal account sent here from / or back from SSO has the session cookie but no
+    // portal-sid yet, so take that session over. Any other account stays on the login form and
+    // its session is left alone: no logout, the main window may be using it
+    if(!S.sid){
+        try{
+            const r=await fetch(`${API}/api/auth/check?t=${Date.now()}`,{credentials:'include'});
+            const d=r.ok?await r.json():null;
+            if(!d||!d.authenticated||!d.session_id||d.user?.role==='admin'||!d.user?.portal_only)return;
+            S.sid=d.session_id;sessionStorage.setItem('portal-sid',d.session_id);
+        }catch(e){return;}
+    }
     try{
         const r=await api(`${API}/api/auth/check`);
         if(r&&r.ok){

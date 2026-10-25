@@ -8,6 +8,7 @@ import secrets
 import base64
 import ipaddress
 from datetime import datetime
+from urllib.parse import urlparse
 from flask import Blueprint, jsonify, request, make_response
 
 from pegaprox.constants import *
@@ -60,15 +61,16 @@ bp = Blueprint('auth', __name__)
 # ============================================================================
     
 
-@bp.route('/api/auth/oidc/authorize', methods=['GET'])
-def oidc_authorize():
-    """Initiate OIDC login flow - redirects user to identity provider
-    
-    NS: Generates CSRF state, stores in session, redirects to IdP
+def _oidc_begin(answer):
+    """Start an OIDC sign-in: state, nonce and PKCE verifier, carried to the callback
+    in the oidc_state cookie. answer(auth_url) builds the response. None when OIDC is
+    off or has no client id, or when answer turns the URL down.
+
+    MK Oct 2026 (#768) - the one start of the JSON route and the redirecting one
     """
     config = get_oidc_settings()
     if not config['enabled'] or not config['client_id']:
-        return jsonify({'error': 'OIDC authentication is not configured'}), 400
+        return None
     
     # NS: Auto-detect redirect URI if not configured
     # never use Origin header - attacker can spoof it to steal OAuth tokens
@@ -87,7 +89,9 @@ def oidc_authorize():
     # Store state in a temporary way (cookie-based since no session yet)
     auth_url, nonce, code_verifier = oidc_build_auth_url(config, state)
 
-    response = make_response(jsonify({'auth_url': auth_url}))
+    response = answer(auth_url)
+    if response is None:
+        return None
     from pegaprox.utils.audit import _is_trusted_proxy
     is_secure = request.is_secure or (_is_trusted_proxy(request.remote_addr) and request.headers.get('X-Forwarded-Proto') == 'https')
     # #188: store state + nonce + PKCE code_verifier in cookie
@@ -112,6 +116,52 @@ def oidc_authorize():
     if _safe_internal_path(redirect_after):
         cookie_val += f":{redirect_after}"
     response.set_cookie('oidc_state', cookie_val, httponly=True, secure=is_secure, samesite='Lax', max_age=600)
+    return response
+
+
+def _idp_location(url):
+    """Whether url may be the Location of a redirect to the identity provider: an
+    absolute https URL, what the login button accepts too (auth.js). A setup with no
+    authorize endpoint builds '?client_id=...', and that as a Location would send the
+    browser back to the route that answered. A header carries ASCII only.
+    """
+    if not isinstance(url, str) or not url.isascii():
+        return False
+    if any(c in url for c in ('\r', '\n', '\t', ' ', '\\')):
+        return False
+    try:
+        u = urlparse(url)
+    except ValueError:
+        return False
+    return u.scheme == 'https' and bool(u.hostname) and not (u.username or u.password)
+
+
+@bp.route('/api/auth/oidc/authorize', methods=['GET'])
+def oidc_authorize():
+    """Initiate OIDC login flow - redirects user to identity provider
+    
+    NS: Generates CSRF state, stores in session, redirects to IdP
+    """
+    response = _oidc_begin(lambda auth_url: make_response(jsonify({'auth_url': auth_url})))
+    if response is None:
+        return jsonify({'error': 'OIDC authentication is not configured'}), 400
+    return response
+
+
+@bp.route('/api/auth/oidc/login', methods=['GET'])
+def oidc_login():
+    """Start the OIDC sign-in with a redirect to the identity provider
+
+    For a bookmark or a portal tile (#768): the same state, nonce, PKCE and cookie as
+    /api/auth/oidc/authorize, answered with a 302 instead of JSON, redirect_after
+    included. Without a usable OIDC setup it sends the browser to the login page.
+    """
+    from flask import redirect as flask_redirect
+    response = _oidc_begin(lambda auth_url: flask_redirect(auth_url, code=302)
+                           if _idp_location(auth_url) else None)
+    if response is None:
+        # the login page and never this route again, so a broken setup cannot loop
+        return flask_redirect('/', code=302)
     return response
 
 
