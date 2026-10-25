@@ -880,6 +880,9 @@ PORTAL_ONLY_ENDPOINTS = frozenset({
 # and the plugin API of this one plugin (plugins.plugin_proxy), not of any other
 PORTAL_ONLY_PLUGIN = 'client_portal'
 PORTAL_ONLY_ERROR = {'error': 'This account can only use the Client Portal', 'code': 'PORTAL_ONLY'}
+# routes the hook leaves alone: they read no credential and answer everyone the same, and
+# a probe hammers /api/health, which must not turn to a DB lookup or a 503 on a header
+PORTAL_ONLY_UNREAD = frozenset({'auth.health_check'})
 
 
 def portal_only_may_serve() -> bool:
@@ -899,11 +902,19 @@ def portal_only_refusal(user: dict):
     return jsonify(PORTAL_ONLY_ERROR), 403
 
 
-def _request_accounts() -> set:
+def _api_token_owner(token: str):
+    """The account an API token belongs to, None for one we do not know."""
+    row = get_db().conn.execute('SELECT username FROM api_tokens WHERE token_hash = ?',
+                                (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+    return row['username'] if row else None
+
+
+def _request_accounts(look_up_tokens=True) -> set:
     """Who the credentials on this request name, whichever a route goes by: the session id
     in the header, either cookie (the SSH server sends `session`) or ?session=, an API
     token, a ws or SSE token in ?token=. Looked up, never used: a ws token is single-use
-    and stays for the route, and no session is touched."""
+    and stays for the route, and no session is touched. look_up_tokens=False leaves an API
+    token in the header alone (it costs a DB read)."""
     names = set()
     sids = (request.headers.get('X-Session-ID'), request.cookies.get('session_id'),
             request.cookies.get('session'), request.args.get('session'))
@@ -919,23 +930,22 @@ def _request_accounts() -> set:
         with sse_tokens_lock:
             names.add((sse_tokens.get(token) or {}).get('user'))
     bearer = request.headers.get('Authorization', '')
-    if bearer.startswith('Bearer pgx_'):
-        row = get_db().conn.execute('SELECT username FROM api_tokens WHERE token_hash = ?',
-                                    (hashlib.sha256(bearer[7:].encode()).hexdigest(),)).fetchone()
-        if row:
-            names.add(row['username'])
+    if look_up_tokens and bearer.startswith('Bearer pgx_'):
+        names.add(_api_token_owner(bearer[7:]))
     names.discard(None)
     names.discard('')
     return names
 
 
-def portal_only_request_refusal():
+def portal_only_request_refusal(look_up_tokens=True):
     """portal_only for a route without require_auth: one that finds its caller itself (the
-    consoles, the live streams, the validate calls of the SSH server) or none at all."""
-    if portal_only_may_serve():
+    consoles, the live streams, the validate calls of the SSH server) or none at all.
+    look_up_tokens=False for a request the API rate limit does not count: a made-up token
+    must not buy an unlimited stream of DB reads, and no route there takes an API token."""
+    if portal_only_may_serve() or request.endpoint in PORTAL_ONLY_UNREAD:
         return None
     try:
-        users = [get_db().get_user(name) for name in _request_accounts()]
+        users = [get_db().get_user(name) for name in _request_accounts(look_up_tokens)]
     except Exception as e:
         # an account we cannot read is not one we know to be free to go on
         logging.warning(f"[AUTH] cannot tell whether the caller is portal_only: {e}")

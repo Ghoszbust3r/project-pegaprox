@@ -159,6 +159,8 @@ def create_app():
                 from pegaprox.api.ha import signed_member_call
                 peer_call = signed_member_call()
             if not peer_call and not any(request.path.startswith(p) for p in skip_paths):
+                # the portal_only hook below looks API tokens up only for a counted request
+                request.environ['pegaprox.rate_counted'] = True
                 # NS: Mar 2026 - use centralized get_client_ip, respects trusted_proxies
                 from pegaprox.utils.audit import get_client_ip
                 client_ip = get_client_ip()
@@ -445,7 +447,8 @@ def create_app():
         if getattr(view, '_pp_auth', None) is not None:
             return None
         from pegaprox.utils.auth import portal_only_request_refusal
-        return portal_only_request_refusal()
+        return portal_only_request_refusal(
+            look_up_tokens=bool(request.environ.get('pegaprox.rate_counted')))
 
     # MK Sep 2026 (#625) - a standby takes its configuration from the active instance
     # and would lose a local change at the next sync, so it refuses writes. With the

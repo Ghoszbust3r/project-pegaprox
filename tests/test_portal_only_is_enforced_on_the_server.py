@@ -35,6 +35,10 @@ PORTAL_CFG = {'allowed_actions': ['vm.view', 'vm.start', 'vm.stop', 'vm.console'
 WS_HEADERS = {'Upgrade': 'websocket', 'Connection': 'Upgrade',
               'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==', 'Sec-WebSocket-Version': '13'}
 REFUSED = (403, 'PORTAL_ONLY')
+# left alone by the hook (auth.PORTAL_ONLY_UNREAD), and the route outside the rate limit
+# that reads no API token, where the hook does not look one up
+UNREAD = {'auth.health_check'}
+TOKENLESS_UNCOUNTED = {'realtime.sse_updates'}
 
 
 # ── accounts, clusters, the plugin ───────────────────────────────────────────
@@ -199,13 +203,54 @@ def test_every_other_api_route_refuses_a_portal_account(world, db, credential, m
     wrong = []
     for rule, method, path, ws in asked:
         r = _send(client, method, path, ws, headers)
-        if (r.status_code, _code(r)) != REFUSED:
+        if rule.endpoint in UNREAD:
+            # reads no credential, says the same to anyone
+            expected = (200, None)
+        elif credential == 'api_token' and rule.endpoint in TOKENLESS_UNCOUNTED:
+            # takes no API token at all: the token opens nothing there
+            expected = (401, _code(r))
+        else:
+            expected = REFUSED
+        if (r.status_code, _code(r)) != expected:
             wrong.append((method, rule.rule, r.status_code, _code(r)))
 
     # every rule and method of the map but the few the portal needs
     assert len(asked) > 950 and len(probes) - len(asked) < 25, (len(probes), len(asked))
     assert not wrong, (len(wrong), wrong)
 
+
+
+def test_a_made_up_token_buys_no_db_read_outside_the_rate_limit(world, db, monkeypatch):
+    """/api/health and /api/sse are not counted by the API rate limit. A made-up API token
+    there must not cost a DB read per request, nor a 503 when the DB is unreadable."""
+    import pegaprox.utils.auth as auth_mod
+    reads = []
+    real = auth_mod._api_token_owner
+
+    def counting(token):
+        reads.append(token)
+        return real(token)
+    monkeypatch.setattr(auth_mod, '_api_token_owner', counting)
+    client = world.app.test_client(use_cookies=False)
+    made_up = {'Authorization': 'Bearer pgx_deadbeef_' + 'x' * 32}
+
+    for _ in range(20):
+        assert client.get('/api/health', headers=made_up, base_url='http://localhost').status_code == 200
+        client.get('/api/sse/updates', headers=made_up, base_url='http://localhost')
+    assert reads == []
+
+    # a counted route still has the token looked up, a held account's token included
+    _account(db, 'cust', portal_only=True)
+    held = {'Authorization': f'Bearer {_token("cust")}'}
+    r = client.get('/api/auth/validate', headers=held, base_url='http://localhost')
+    assert (r.status_code, _code(r)) == REFUSED and len(reads) == 1
+
+    # and the health answer does not hang on the DB
+    def broken(token):
+        raise RuntimeError('db gone')
+    monkeypatch.setattr(auth_mod, '_api_token_owner', broken)
+    monkeypatch.setattr(auth_mod, 'get_db', lambda: (_ for _ in ()).throw(RuntimeError('db gone')))
+    assert client.get('/api/health', headers=held, base_url='http://localhost').status_code == 200
 
 def test_the_same_account_without_the_flag_is_never_told_portal_only(api, db, offline, monkeypatch):
     """The counter-sweep: what decides is the flag, not the role, the routes or the dummy
