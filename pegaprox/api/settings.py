@@ -4967,13 +4967,25 @@ def start_rolling_update(cluster_id):
     MK: Fixed GitHub Issue - skip up-to-date nodes and configurable timeout
     
     Parameters (via JSON body):
-    - include_reboot: bool - Whether to reboot nodes after update (default: False)
+    - include_reboot: bool - Whether to reboot nodes after update (default: False), needs node.reboot
     - node_order: list - Custom order of nodes to update
     - skip_up_to_date: bool - Skip nodes that have no updates available (default: True)
     - force_all: bool - Force update all nodes even if up-to-date (default: False)
+    - skip_evacuation: bool - Update without moving the guests off first (default: False, not recommended)
+    - wait_for_reboot: bool - Wait until a rebooted node is back before the next one (default: True)
+    - pause_on_evacuation_error: bool - Pause the run when a guest cannot be moved (default: True)
+    - allow_local_disks: bool - Live-migrate guests on local storage with --with-local-disks
+      instead of skipping them (default: False); the disks are copied over the network
+    - migrate_templates: bool - Move the node's templates with it, offline (default: False, Proxmox only)
+    - relax_anti_affinity: bool - Let negative affinity rules give way during the run (default: False, Proxmox only)
+    - ceph_health_gate: str - 'off', 'degraded' or 'strict': hold the run when Ceph does not
+      come back healthy after a node (default: 'off')
     - evacuation_timeout: int - Timeout in seconds for VM evacuation (default: 1800 = 30 min)
     - update_timeout: int - Timeout in seconds for apt upgrade (default: 900 = 15 min)
     - reboot_timeout: int - Timeout in seconds for node reboot (default: 600 = 10 min)
+      (the three timeouts are clamped to 60-7200)
+    - notify_channels: list - Alert channel ids (GET /api/alert-channels) that get
+      rolling_update.started, rolling_update.finished and rolling_update.interrupted (default: none)
 
     MK Oct 2026 - the run is kept in rolling_update_runs (core/rolling_runs.py) and refused
     while another one of the cluster is running or paused, across restarts too.

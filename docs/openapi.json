@@ -90,6 +90,25 @@
         "x-pegaprox-auth": "public"
       }
     },
+    "/api/auth/oidc/login": {
+      "get": {
+        "operationId": "auth.oidc_login_get",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Bad request"
+          }
+        },
+        "summary": "Start the OIDC sign-in with a redirect to the identity provider",
+        "description": "For a bookmark or a portal tile (#768): the same state, nonce, PKCE and cookie as\n/api/auth/oidc/authorize, answered with a 302 instead of JSON, redirect_after\nincluded. Without a usable OIDC setup it sends the browser to the login page.",
+        "x-pegaprox-auth": "public"
+      }
+    },
     "/api/auth/oidc/callback": {
       "get": {
         "operationId": "auth.oidc_callback_redirect_get",
@@ -14935,6 +14954,51 @@
           }
         },
         "summary": "Create a new cross-cluster replication job.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "x-pegaprox-auth": "decorator",
+        "security": [
+          {
+            "apiToken": []
+          },
+          {
+            "sessionId": []
+          }
+        ],
+        "x-pegaprox-permissions": [
+          "cluster.config"
+        ]
+      }
+    },
+    "/api/cross-cluster-replications/preflight": {
+      "post": {
+        "operationId": "vms.preflight_cross_cluster_replication_post",
+        "tags": [
+          "vms"
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Not authenticated"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          }
+        },
+        "summary": "What creating a cross-cluster replication job would warn about: {source_cluster, vmid, vm_type, target_cluster, source_node}, the last two optional. Only a container is read (its feature flags), a VM is not.",
         "requestBody": {
           "required": false,
           "content": {
@@ -34934,7 +34998,7 @@
           }
         },
         "summary": "Start a rolling update across all cluster nodes",
-        "description": "MK: Fixed GitHub Issue - skip up-to-date nodes and configurable timeout\n\nParameters (via JSON body):\n- include_reboot: bool - Whether to reboot nodes after update (default: False)\n- node_order: list - Custom order of nodes to update\n- skip_up_to_date: bool - Skip nodes that have no updates available (default: True)\n- force_all: bool - Force update all nodes even if up-to-date (default: False)\n- evacuation_timeout: int - Timeout in seconds for VM evacuation (default: 1800 = 30 min)\n- update_timeout: int - Timeout in seconds for apt upgrade (default: 900 = 15 min)\n- reboot_timeout: int - Timeout in seconds for node reboot (default: 600 = 10 min)\n\nMK Oct 2026 - the run is kept in rolling_update_runs (core/rolling_runs.py) and refused\nwhile another one of the cluster is running or paused, across restarts too.",
+        "description": "MK: Fixed GitHub Issue - skip up-to-date nodes and configurable timeout\n\nParameters (via JSON body):\n- include_reboot: bool - Whether to reboot nodes after update (default: False), needs node.reboot\n- node_order: list - Custom order of nodes to update\n- skip_up_to_date: bool - Skip nodes that have no updates available (default: True)\n- force_all: bool - Force update all nodes even if up-to-date (default: False)\n- skip_evacuation: bool - Update without moving the guests off first (default: False, not recommended)\n- wait_for_reboot: bool - Wait until a rebooted node is back before the next one (default: True)\n- pause_on_evacuation_error: bool - Pause the run when a guest cannot be moved (default: True)\n- allow_local_disks: bool - Live-migrate guests on local storage with --with-local-disks\n  instead of skipping them (default: False); the disks are copied over the network\n- migrate_templates: bool - Move the node's templates with it, offline (default: False, Proxmox only)\n- relax_anti_affinity: bool - Let negative affinity rules give way during the run (default: False, Proxmox only)\n- ceph_health_gate: str - 'off', 'degraded' or 'strict': hold the run when Ceph does not\n  come back healthy after a node (default: 'off')\n- evacuation_timeout: int - Timeout in seconds for VM evacuation (default: 1800 = 30 min)\n- update_timeout: int - Timeout in seconds for apt upgrade (default: 900 = 15 min)\n- reboot_timeout: int - Timeout in seconds for node reboot (default: 600 = 10 min)\n  (the three timeouts are clamped to 60-7200)\n- notify_channels: list - Alert channel ids (GET /api/alert-channels) that get\n  rolling_update.started, rolling_update.finished and rolling_update.interrupted (default: none)\n\nMK Oct 2026 - the run is kept in rolling_update_runs (core/rolling_runs.py) and refused\nwhile another one of the cluster is running or paused, across restarts too.",
         "parameters": [
           {
             "name": "cluster_id",
