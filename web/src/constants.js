@@ -94,6 +94,29 @@
             return !!clusterId && scope.indexOf(clusterId) >= 0;
         }
 
+        // LW Oct 2026 (#1159) - the storage figure of a cluster is the room for VM and CT disks.
+        // A PBS datastore or a share for backups, ISOs and templates only would blow it up, so
+        // only a storage whose content names images or rootdir counts. Same rule as the server.
+        function holdsGuestDisks(ds) {
+            const c = ds && ds.content;
+            const list = Array.isArray(c) ? c : (typeof c === 'string' ? c.split(',') : []);
+            return list.some(x => { const v = String(x).trim(); return v === 'images' || v === 'rootdir'; });
+        }
+
+        // used/total over a /datastores answer ({shared, local: {node: [...]}}): a shared
+        // storage once, a local one per node
+        function guestStorageTotals(datastores) {
+            const shared = (datastores && datastores.shared) || [];
+            const seen = new Set(shared.map(d => d.storage));
+            const all = [...shared];
+            Object.values((datastores && datastores.local) || {}).forEach(list => {
+                (list || []).forEach(d => { if (!seen.has(d.storage)) all.push(d); });
+            });
+            let used = 0, total = 0;
+            all.filter(holdsGuestDisks).forEach(d => { used += d.used || 0; total += d.total || 0; });
+            return { used, total };
+        }
+
 
         // =====================================================
         // TRANSLATION SYSTEM

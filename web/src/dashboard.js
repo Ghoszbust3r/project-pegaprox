@@ -21262,12 +21262,10 @@
                                                     const usedMem = metrics.reduce((s, m) => s + (m.mem_used || (m.memory && m.memory.used) || 0), 0);
                                                     const memPct = totalMem > 0 ? (usedMem / totalMem) * 100 : 0;
                                                     // NS: sum ALL datastores (shared + local per node), not just shared
-                                                    const allDs = [...((clusterDatastores && clusterDatastores.shared) || [])];
-                                                    Object.values((clusterDatastores && clusterDatastores.local) || {}).forEach(nodeDs => {
-                                                        (nodeDs || []).forEach(d => allDs.push(d));
-                                                    });
-                                                    let totalStorage = allDs.reduce((s, d) => s + (d.total || 0), 0);
-                                                    let usedStorage = allDs.reduce((s, d) => s + (d.used || 0), 0);
+                                                    // LW Oct 2026 (#1159) - but only those that take guest disks, no PBS
+                                                    const guestDs = guestStorageTotals(clusterDatastores);
+                                                    let totalStorage = guestDs.total;
+                                                    let usedStorage = guestDs.used;
                                                     // fallback to node disk metrics if datastores haven't loaded
                                                     if (totalStorage === 0 && metrics.length > 0) {
                                                         totalStorage = metrics.reduce((s, m) => s + (m.disk_total || 0), 0);
