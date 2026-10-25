@@ -4635,6 +4635,7 @@
                                                     <div className="bg-proxmox-dark border border-proxmox-border rounded-lg p-4 mt-3">
                                                         <h5 className="text-sm font-medium mb-3">{t('newCrossClusterReplication')}</h5>
                                                         <div className="grid grid-cols-2 gap-3">
+                                                            <XReplFeatureWarning authFetch={authFetch} sourceCluster={clusterId} vmid={vm.vmid} vmType={vm.type} node={vm.node} />
                                                             <div>
                                                                 <label className="block text-xs text-gray-400 mb-1">{t('targetCluster')}</label>
                                                                 <select

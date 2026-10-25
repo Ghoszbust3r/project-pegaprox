@@ -9381,6 +9381,14 @@
                                                     )}
                                                 </div>
 
+                                                <XReplFeatureWarning
+                                                    authFetch={authFetch}
+                                                    sourceCluster={xReplForm.source_cluster}
+                                                    vmid={xReplForm.vmid}
+                                                    vmType={xReplForm.vm_type}
+                                                    node={xReplSourceVMs.find(v => String(v.vmid) === String(xReplForm.vmid))?.node}
+                                                />
+
                                                 {/* Target Cluster */}
                                                 <div>
                                                     <label className="block text-xs text-gray-400 mb-1">{t('targetCluster') || 'Target Cluster'}</label>
@@ -9627,6 +9635,47 @@
                                     <><Icons.Save className="w-4 h-4" /> {t('save') || 'Save'}</>
                                 )}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // LW Oct 2026 - the server reads a picked container's feature flags: those only root@pam
+        // may set stop every run of a cross-cluster job, so the dialog says it before Create (#457).
+        // Used by the group settings and the VM configuration dialog alike
+        function XReplFeatureWarning({ authFetch, sourceCluster, vmid, vmType, node }) {
+            const { t } = useTranslation();
+            const [warning, setWarning] = useState(null);
+            useEffect(() => {
+                setWarning(null);
+                if (!authFetch || vmType !== 'lxc' || !sourceCluster || !vmid) return;
+                let cancelled = false;
+                (async () => {
+                    try {
+                        const res = await authFetch(`${API_URL}/cross-cluster-replications/preflight`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ source_cluster: sourceCluster, vmid: parseInt(vmid, 10), vm_type: vmType, source_node: node || '' }),
+                        });
+                        if (cancelled || !res || !res.ok) return;
+                        const data = await res.json();
+                        const found = (data.warnings || []).find(w => w.code === 'LXC_ROOT_ONLY_FEATURES');
+                        if (!cancelled) setWarning(found || null);
+                    } catch (e) {
+                        console.error('xrepl preflight:', e);
+                    }
+                })();
+                return () => { cancelled = true; };
+            }, [sourceCluster, vmid, vmType, node]);
+            if (!warning) return null;
+            const args = warning.args || {};
+            return (
+                <div data-xrepl-features-warning="" className="col-span-2 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                    <div className="flex items-start gap-2">
+                        <Icons.AlertTriangle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+                        <div className="text-xs text-yellow-300">
+                            {t('xReplRootOnlyFeatures').replace('{vmid}', () => String(args.vmid ?? vmid)).replace('{flags}', () => String(args.flags || ''))}
                         </div>
                     </div>
                 </div>
