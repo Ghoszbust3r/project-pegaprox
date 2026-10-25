@@ -53,7 +53,7 @@ from pegaprox.core.config import save_config
 from pegaprox.api.helpers import get_connected_manager, check_cluster_access, register_task_user, safe_error, parse_pve_error, scope_vm_rows, require_unconfined, caller_is_scoped
 from pegaprox.api.helpers import node_shell_address
 from pegaprox.api.helpers import xapi_permission_missing, upstream_failure, tenant_quota_gate, guest_size, quota_hold_alive
-from pegaprox.api.helpers import evacuation_options, evacuation_options_said
+from pegaprox.api.helpers import evacuation_options, evacuation_options_said, guest_storage_totals
 from pegaprox.api.helpers import (sees_whole_maintenance, maintenance_without_guests,
                                   node_maintenance_for_caller)
 from pegaprox.api.ha import standby_console_refusal, STANDBY_CONSOLE_ERROR
@@ -176,8 +176,7 @@ def get_datacenter_status(cluster_id):
             vms = manager.get_vms()
             storages = manager.get_storages()
             nodes_online = sum(1 for n in nodes if n.get('status') == 'online')
-            total_disk = sum(s.get('total', 0) for s in storages)
-            used_disk = sum(s.get('used', 0) for s in storages)
+            used_disk, total_disk = guest_storage_totals(storages)
             vms_running = len([v for v in vms if v.get('status') == 'running'])
             vms_stopped = len([v for v in vms if v.get('status') == 'stopped'])
             return jsonify({
@@ -250,8 +249,12 @@ def get_datacenter_status(cluster_id):
         used_cpu = sum(r.get('cpu', 0) * r.get('maxcpu', 0) for r in resources_data if r.get('type') == 'node')
         total_mem = sum(r.get('maxmem', 0) for r in resources_data if r.get('type') == 'node')
         used_mem = sum(r.get('mem', 0) for r in resources_data if r.get('type') == 'node')
-        total_disk = sum(r.get('maxdisk', 0) for r in resources_data if r.get('type') == 'storage')
-        used_disk = sum(r.get('disk', 0) for r in resources_data if r.get('type') == 'storage')
+        # MK Oct 2026 (#1159) - Proxmox lists a shared storage once per node and a PBS datastore
+        # like any other, so both went into the total: the space VM and CT disks can take, a
+        # shared storage once, active ones only (as the storage overview counts them)
+        from pegaprox.api.clusters import _storage_overview_rows
+        storage_rows = _storage_overview_rows([r for r in resources_data if r.get('type') == 'storage'])
+        used_disk, total_disk = guest_storage_totals([r for r in storage_rows if r['active']])
 
         # NS: single-node Proxmox doesn't return a cluster entry, was showing red X for no reason (#90)
         if is_standalone:

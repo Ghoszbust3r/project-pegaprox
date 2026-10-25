@@ -818,6 +818,33 @@ def guest_size(manager, node, vm_type, vmid):
     return cfg or {}
 
 
+# MK Oct 2026 (#1159) - a PBS datastore or a share that only takes backups, ISOs and templates
+# is not room for guests, and it made the storage figure of a cluster look far bigger
+GUEST_DISK_CONTENT = ('images', 'rootdir')
+
+
+def holds_guest_disks(storage):
+    """True when a storage takes VM or CT disks: its content (a comma list as Proxmox sends
+    it, or a list) names images or rootdir."""
+    content = storage.get('content') if isinstance(storage, dict) else None
+    if isinstance(content, str):
+        content = content.split(',')
+    if not isinstance(content, (list, tuple, set)):
+        return False
+    return any(str(c).strip() in GUEST_DISK_CONTENT for c in content)
+
+
+def guest_storage_totals(rows):
+    """(used, total) bytes over the storages that hold guest disks. One row per storage, so
+    a shared one has to come in once and not once per node."""
+    used = total = 0
+    for row in rows or ():
+        if holds_guest_disks(row):
+            used += int(row.get('used') or 0)
+            total += int(row.get('total') or 0)
+    return used, total
+
+
 def node_shell_address(mgr, node):
     """The address a shell for `node` logs in at, or None: then there is no shell.
 
