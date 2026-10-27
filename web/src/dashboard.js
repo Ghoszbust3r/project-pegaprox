@@ -28791,7 +28791,7 @@
                                                         {xhmMigrations.map(m => {
                                                             const isActive = m.status === 'running';
                                                             const phases = ['planning','transfer','creating','attaching','completed'];
-                                                            const phaseLabel = {planning:'Planning', transfer:'Transfer', creating:'Creating', attaching:'Attaching', completed:'Done', failed:'Failed'};
+                                                            const phaseLabel = {planning: t('phasePlanning'), transfer: t('phaseTransfer'), creating: t('phaseCreating'), attaching: t('phaseAttaching'), completed: t('done'), failed: t('failed')};
                                                             const dirLabel = m.direction === 'xcpng_to_pve' ? 'XCP→PVE' : 'PVE→XCP';
                                                             return (
                                                                 <div key={m.id} className={`p-4 hover:bg-proxmox-hover/30 cursor-pointer ${xhmSelectedMigration === m.id ? 'bg-purple-500/5 border-l-2 border-l-purple-400' : ''}`}
@@ -28841,12 +28841,12 @@
                                             {xhmSelectedMigration && xhmMigrationDetail && (
                                                 <div className="bg-proxmox-card border border-proxmox-border rounded-xl overflow-hidden">
                                                     <div className="p-4 border-b border-proxmox-border flex items-center justify-between">
-                                                        <h3 className="text-sm font-semibold text-white">Migration Log - {xhmMigrationDetail.vm_name} <span className="text-gray-500 font-normal">({xhmSelectedMigration})</span></h3>
-                                                        <button onClick={() => setXhmSelectedMigration(null)} className="text-xs text-gray-500 hover:text-white px-2 py-1 rounded bg-proxmox-dark">Close</button>
+                                                        <h3 className="text-sm font-semibold text-white">{t('migrationLog')} - {xhmMigrationDetail.vm_name} <span className="text-gray-500 font-normal">({xhmSelectedMigration})</span></h3>
+                                                        <button onClick={() => setXhmSelectedMigration(null)} className="text-xs text-gray-500 hover:text-white px-2 py-1 rounded bg-proxmox-dark">{t('close')}</button>
                                                     </div>
                                                     {xhmMigrationDetail.disk_progress && Object.keys(xhmMigrationDetail.disk_progress).length > 0 && (
                                                         <div className="p-4 border-b border-proxmox-border/50 space-y-2">
-                                                            <div className="text-xs text-gray-500 uppercase font-semibold">Disk Transfer</div>
+                                                            <div className="text-xs text-gray-500 uppercase font-semibold">{t('diskTransfer')}</div>
                                                             {Object.entries(xhmMigrationDetail.disk_progress).map(([key, dp]) => (
                                                                 <div key={key}>
                                                                     <div className="flex justify-between text-xs text-gray-400 mb-0.5">
