@@ -10892,6 +10892,30 @@ echo "AGENT_INSTALLED_OK"
         finally:
             _ssh_track_connection('ha', -1)
     
+    def _ssh_read_output(self, host: str, user: str, command: str, timeout: int = 30) -> str:
+        """stdout of a read on a node with the cluster's own credentials, None when none of
+        them got through: the configured key, then the keys ssh finds itself, then the
+        password - the order of _ssh_node_output_ex.
+
+        MK Oct 2026 (#601) - the sensors, the cluster health and the NIC counters called
+        _ssh_run_command_output alone, which offers only the keys of the PegaProx process.
+        The key from the cluster settings never went along, so where the process has none
+        (the Docker image) each of these reads failed, next to an sshd log full of logins
+        with that key from everything else.
+        """
+        ssh_key = getattr(self.config, 'ssh_key', '')
+        if ssh_key:
+            out = self._ssh_run_command_with_key_output(host, user, command, ssh_key, timeout=timeout)
+            if out is not None:
+                return out
+        out = self._ssh_run_command_output(host, user, command, timeout=timeout)
+        if out is not None:
+            return out
+        password = self.ssh_password_to_offer(host)
+        if password:
+            return self._ssh_run_command_with_password_output(host, user, command, password, timeout=timeout)
+        return None
+
     # Legacy storage-based functions kept for advanced users who want extra safety
     def _ha_storage_heartbeat_init(self):
         """Initialize storage-based heartbeat system"""
@@ -19199,7 +19223,7 @@ echo "AGENT_INSTALLED_OK"
         user = getattr(self.config, 'ssh_user', None) or 'root'
 
         with ha.reading():
-            raw = self._ssh_run_command_output(ip, user, self._SENSORS_PROBE, timeout=8)
+            raw = self._ssh_read_output(ip, user, self._SENSORS_PROBE, timeout=8)
         if raw is None:
             return {'error': f'no answer from node {node} over SSH'}
         raw, _, hw_dump = raw.partition('__PP_HWMON__')
@@ -19261,7 +19285,7 @@ echo "AGENT_INSTALLED_OK"
             # is perfectly fine. Parse the human-readable output instead - it works wherever
             # `sensors` itself does. Not tried when the probe found no lm-sensors at all.
             with ha.reading():
-                text = self._ssh_run_command_output(ip, user, 'sensors 2>/dev/null', timeout=8)
+                text = self._ssh_read_output(ip, user, 'sensors 2>/dev/null', timeout=8)
             out = self._parse_sensors_text(text) if text and text.strip() else []
             if out:
                 return {'sensors': out, 'count': len(out), 'source': 'text'}
@@ -19480,13 +19504,13 @@ echo "AGENT_INSTALLED_OK"
         # path future-proof regardless.
         SERVICES = ['pveproxy', 'pvedaemon', 'pve-cluster', 'corosync', 'pvestatd']
         tasks = {
-            'cfg':   (lambda: self._ssh_run_command_output(ip, user, 'corosync-cfgtool -s 2>&1', timeout=8)),
-            'pvecm': (lambda: self._ssh_run_command_output(ip, user, 'pvecm status 2>&1', timeout=8)),
+            'cfg':   (lambda: self._ssh_read_output(ip, user, 'corosync-cfgtool -s 2>&1', timeout=8)),
+            'pvecm': (lambda: self._ssh_read_output(ip, user, 'pvecm status 2>&1', timeout=8)),
         }
         for svc in SERVICES:
             # closure-bind svc explicitly — late-binding bites here otherwise
             quoted = shlex.quote(svc)
-            tasks[f'svc:{svc}'] = (lambda q=quoted: self._ssh_run_command_output(
+            tasks[f'svc:{svc}'] = (lambda q=quoted: self._ssh_read_output(
                 ip, user,
                 f'systemctl show -p ActiveState,SubState,ActiveEnterTimestamp,Result {q} 2>&1',
                 timeout=8))
@@ -19589,7 +19613,7 @@ echo "AGENT_INSTALLED_OK"
             return {'error': f'no SSH-reachable IP for node {node}'}
 
         user = getattr(self.config, 'ssh_user', None) or 'root'
-        output = self._ssh_run_command_output(ip, user, 'cat /proc/net/dev', timeout=10)
+        output = self._ssh_read_output(ip, user, 'cat /proc/net/dev', timeout=10)
         if not output:
             return {'error': 'SSH read failed (auth, timeout, or empty)'}
 

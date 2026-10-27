@@ -846,7 +846,7 @@ def test_a_user_job_is_started_through_as_job(key):
 # say they only read, and a plain thread carries neither a token nor the job mark of
 # whoever started it, so in an automatic group its first such call is refused. It says
 # so with `with ha.reading()` around the call, or it is started on ha.carry(fn).
-_NODE_SENDS = {'_pve_node_exec', '_node_ssh_exec', '_ssh_run_command', '_ssh_run_command_output',
+_NODE_SENDS = {'_pve_node_exec', '_node_ssh_exec', '_ssh_run_command', '_ssh_run_command_output', '_ssh_read_output',
                '_ssh_run_command_with_key', '_ssh_run_command_with_key_output',
                '_ssh_run_command_with_password', '_ssh_run_command_with_password_output',
                '_ssh_exec', '_ssh_execute', 'exec_command', 'invoke_shell', 'node_cmd', '_ha_agent_ssh'}
@@ -1133,7 +1133,7 @@ READ_SITES = [
     ('pegaprox/core/manager.py', 'PegaProxManager._ha_check_agents.one', {'_ha_agent_ssh': 1}),
     ('pegaprox/core/manager.py', 'PegaProxManager._ha_redeploy_fence_agents.look', {'_ha_agent_ssh': 1}),
     ('pegaprox/core/manager.py', 'PegaProxManager.get_efficient_snapshots', {'_node_ssh_exec': 2}),
-    ('pegaprox/core/manager.py', 'PegaProxManager.get_node_sensors', {'_ssh_run_command_output': 2}),
+    ('pegaprox/core/manager.py', 'PegaProxManager.get_node_sensors', {'_ssh_read_output': 2}),
     # the `echo OK` that finds a working address before the guests are stopped
     ('pegaprox/core/manager.py', 'PegaProxManager._ha_ssh_stop_vms_on_node',
      {'_ssh_run_command_output': 1, '_ssh_run_command_with_key_output': 1,
