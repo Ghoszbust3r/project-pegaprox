@@ -5858,7 +5858,7 @@
                                                         </div>
                                                     </div>
                                                     <table className="corp-datagrid">
-                                                        <thead><tr><th>{t('name')}</th><th>{t('type')}</th><th>CIDR</th><th>Gateway</th><th>{t('active') || 'Active'}</th><th style={{width: '60px'}}></th></tr></thead>
+                                                        <thead><tr><th>{t('name')}</th><th>{t('type')}</th><th>CIDR</th><th>Gateway</th><th>{t('active') || 'Active'}</th><th>{t('comment')}</th><th style={{width: '60px'}}></th></tr></thead>
                                                         <tbody>
                                                             {(Array.isArray(data.network) ? data.network : []).map((iface, i) => (
                                                                 <tr key={i}>
@@ -5867,6 +5867,7 @@
                                                                     <td style={{fontFamily: 'monospace', fontSize: '12px'}}>{iface.cidr || iface.address || '-'}</td>
                                                                     <td style={{fontFamily: 'monospace', fontSize: '12px'}}>{iface.gateway || '-'}</td>
                                                                     <td><span className="w-2 h-2 rounded-full inline-block" style={{background: iface.active ? '#60b515' : '#728b9a'}}></span></td>
+                                                                    <td title={iface.comments || ''} style={{maxWidth: '240px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{iface.comments || ''}</td>
                                                                     <td>
                                                                         <div className="flex gap-1">
                                                                             <button onClick={() => setData(prev => ({...prev, editIface: {...iface, isNew: false}}))}
@@ -5885,7 +5886,7 @@
                                                                     </td>
                                                                 </tr>
                                                             ))}
-                                                            {(!data.network || data.network.length === 0) && <tr><td colSpan={6} className="text-center py-4" style={{color: '#728b9a'}}>No network interfaces</td></tr>}
+                                                            {(!data.network || data.network.length === 0) && <tr><td colSpan={7} className="text-center py-4" style={{color: '#728b9a'}}>No network interfaces</td></tr>}
                                                         </tbody>
                                                     </table>
                                                     {/* LW: Feb 2026 - edit/create interface modal */}
