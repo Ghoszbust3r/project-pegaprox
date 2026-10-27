@@ -3,26 +3,26 @@
         // That's ~150 entries with no structure. Now: group by the dot-prefix, human-readable
         // group headers, per-group "select all", description tooltips, and a search box.
         const PERMISSION_CATEGORY_META = {
-            vm:            { order: 10, title: 'Virtual Machines',      icon: '🖥️' },
-            cluster:       { order: 20, title: 'Cluster',               icon: '🔗' },
-            node:          { order: 30, title: 'Nodes',                 icon: '🏠' },
-            storage:       { order: 40, title: 'Storage',               icon: '💾' },
-            backup:        { order: 50, title: 'Backup Jobs',           icon: '📦' },
-            ha:            { order: 60, title: 'High Availability',     icon: '⚡' },
-            firewall:      { order: 70, title: 'Firewall',              icon: '🛡️' },
-            pool:          { order: 80, title: 'Resource Pools',        icon: '🗂️' },
-            replication:   { order: 90, title: 'Replication',           icon: '🔁' },
+            vm:            { order: 10, title: 'Virtual Machines', titleKey: 'virtualMachines',      icon: '🖥️' },
+            cluster:       { order: 20, title: 'Cluster', titleKey: 'cluster',               icon: '🔗' },
+            node:          { order: 30, title: 'Nodes', titleKey: 'nodes',                 icon: '🏠' },
+            storage:       { order: 40, title: 'Storage', titleKey: 'storage',               icon: '💾' },
+            backup:        { order: 50, title: 'Backup Jobs', titleKey: 'backupJobs',           icon: '📦' },
+            ha:            { order: 60, title: 'High Availability', titleKey: 'permCatHa',     icon: '⚡' },
+            firewall:      { order: 70, title: 'Firewall', titleKey: 'firewall',              icon: '🛡️' },
+            pool:          { order: 80, title: 'Resource Pools', titleKey: 'permCatPools',        icon: '🗂️' },
+            replication:   { order: 90, title: 'Replication', titleKey: 'replication',           icon: '🔁' },
             ceph:          { order: 100, title: 'Ceph',                 icon: '🐙' },
-            sdn:           { order: 110, title: 'Software-Defined Net', icon: '🌐' },
-            alert:         { order: 120, title: 'Alerts',               icon: '🔔' },
-            site_recovery: { order: 130, title: 'Site Recovery',        icon: '🚨' },
+            sdn:           { order: 110, title: 'Software-Defined Net', titleKey: 'permCatSdn', icon: '🌐' },
+            alert:         { order: 120, title: 'Alerts', titleKey: 'alerts',               icon: '🔔' },
+            site_recovery: { order: 130, title: 'Site Recovery', titleKey: 'siteRecovery',        icon: '🚨' },
             pbs:           { order: 140, title: 'Proxmox Backup Server',icon: '🗄️' },
             vmware:        { order: 150, title: 'ESXi',       icon: '📡' },
             xapi:          { order: 160, title: 'XCP-ng',               icon: '🔶' },
-            plugins:       { order: 170, title: 'Plugins',              icon: '🧩' },
-            autoinstall:   { order: 175, title: 'Automated Installs',   icon: '💿' },
-            metrics:       { order: 180, title: 'Telemetry',            icon: '📈' },
-            admin:         { order: 999, title: 'Administration',       icon: '⚙️' },
+            plugins:       { order: 170, title: 'Plugins', titleKey: 'plugins',              icon: '🧩' },
+            autoinstall:   { order: 175, title: 'Automated Installs', titleKey: 'permCatAutoInstall',   icon: '💿' },
+            metrics:       { order: 180, title: 'Telemetry', titleKey: 'permCatTelemetry',            icon: '📈' },
+            admin:         { order: 999, title: 'Administration', titleKey: 'permCatAdmin',       icon: '⚙️' },
         };
 
         function PermissionsGrid({ allPermissions, selected, onChange, t }) {
@@ -88,7 +88,7 @@
                                         onClick={() => setCollapsed(c => ({...c, [cat]: !c[cat]}))}>
                                         <Icons.ChevronDown className={`w-3.5 h-3.5 text-gray-400 transition-transform ${isCollapsed ? '-rotate-90' : ''}`} />
                                         <span className="text-base">{meta.icon}</span>
-                                        <span className="text-sm font-medium text-white flex-1">{meta.title}</span>
+                                        <span className="text-sm font-medium text-white flex-1">{meta.titleKey ? t(meta.titleKey) : meta.title}</span>
                                         <span className={`text-xs ${allChecked ? 'text-green-400' : someChecked ? 'text-yellow-400' : 'text-gray-500'}`}>
                                             {checkedCount}/{perms.length}
                                         </span>
